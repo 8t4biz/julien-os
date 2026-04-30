@@ -134,6 +134,14 @@ async def poll_once(bot, chat_id: int) -> tuple[int, list[str]]:
 
         if priorite == "IGNORER":
             rapport.append("   🚫 Classé IGNORER → pas d'alerte envoyée")
+            # V1.0.2 Hook C — déplacer vers "Auto-classés bruit"
+            try:
+                from ..tools import imap_actions
+                await imap_actions.mark_and_move(
+                    uid, folder, imap_actions.FOLDER_BRUIT
+                )
+            except Exception as e:
+                logger.error("[IMAP_ACTION_FAIL] hook C uid=" + str(uid) + ": " + str(e))
             continue
 
         # Options

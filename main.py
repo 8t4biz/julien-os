@@ -124,6 +124,16 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         texte_choisi = options[idx] if idx < len(options) else None
     elif texte == "3":
         await ignorer_pending(pending_id)
+        # V1.0.2 Hook B — pour les pendings Proton, déplacer vers "À reprendre"
+        if source == "protonmail" and item_data.get("uid"):
+            try:
+                from .tools import imap_actions
+                src_folder = item_data.get("folder") or "INBOX"
+                await imap_actions.mark_and_move(
+                    item_data["uid"], src_folder, imap_actions.FOLDER_REPRENDRE
+                )
+            except Exception as e:
+                logger.error("[IMAP_ACTION_FAIL] hook B: " + str(e))
         await update.message.reply_text("Message ignoré.")
         return True
     elif len(texte) > 10:
@@ -253,6 +263,15 @@ async def _executer_action(state: dict, bot=None, chat_id: int = None) -> bool:
             + " folder=" + folder
             + " uid=" + str(item_data.get("uid", "?"))
         )
+        # V1.0.2 Hook A — déplacement vers "Traité par agent" après envoi SMTP réussi
+        if ok and item_data.get("uid"):
+            try:
+                from .tools import imap_actions
+                await imap_actions.mark_and_move(
+                    item_data["uid"], folder, imap_actions.FOLDER_TRAITE
+                )
+            except Exception as e:
+                logger.error("[IMAP_ACTION_FAIL] hook A: " + str(e))
         return ok
 
     elif source == "airbnb":
@@ -855,6 +874,75 @@ async def cmd_forcer_airbnb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Scan terminé : {nb} alerte(s) envoyée(s).")
 
 
+async def cmd_migrate_v102(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """V1.0.2 — Migration rétroactive des pendings Proton vers les dossiers cibles. Idempotent."""
+    import aiosqlite
+    import json as _json
+    from .tools import imap_actions
+
+    await update.message.reply_text("🔄 Migration V1.0.2 en cours…")
+
+    # 1) S'assurer que les 3 dossiers existent
+    creation = await imap_actions.ensure_v102_folders()
+
+    cnt_traite = 0
+    cnt_reprendre = 0
+    cnt_skip = 0
+    cnt_fail = 0
+
+    async with aiosqlite.connect("/root/memoire.db") as db:
+        cursor = await db.execute(
+            """SELECT id, item_data, statut FROM pending_actions
+               WHERE source = 'protonmail' AND statut IN ('envoye','ignore')
+               ORDER BY id"""
+        )
+        rows = await cursor.fetchall()
+
+    for row in rows:
+        pid, raw, statut = row
+        try:
+            item = _json.loads(raw)
+        except Exception as e:
+            logger.error("[IMAP_ACTION_FAIL] migrate_v102 pending #" + str(pid) + " json: " + str(e))
+            cnt_fail += 1
+            continue
+        uid = item.get("uid")
+        src_folder = item.get("folder") or "INBOX"
+        if not uid:
+            cnt_skip += 1
+            continue
+        target = imap_actions.FOLDER_TRAITE if statut == "envoye" else imap_actions.FOLDER_REPRENDRE
+        if src_folder == target:
+            cnt_skip += 1
+            continue
+        ok = await imap_actions.mark_and_move(uid, src_folder, target)
+        if ok:
+            if statut == "envoye":
+                cnt_traite += 1
+            else:
+                cnt_reprendre += 1
+        else:
+            cnt_fail += 1
+
+    lignes = ["✅ Migration V1.0.2 terminée", "", "Dossiers Proton :"]
+    for f, ok in creation.items():
+        lignes.append("  • " + f + " → " + ("OK" if ok else "FAIL"))
+    lignes += [
+        "",
+        "Résultat :",
+        "  • " + str(cnt_traite) + " pending(s) → Traité par agent",
+        "  • " + str(cnt_reprendre) + " pending(s) → À reprendre",
+        "  • " + str(cnt_skip) + " skippé(s) (déjà classé ou pas d'UID)",
+        "  • " + str(cnt_fail) + " échec(s) IMAP (voir logs [IMAP_ACTION_FAIL])",
+        "",
+        "Note : les emails classés IGNORER avant V1.0.2 ne sont pas migrés "
+        "(pas de trace en base). Les futurs IGNORER vont dans Auto-classés bruit automatiquement.",
+    ]
+    rapport = "\n".join(lignes)
+    for i in range(0, len(rapport), 4000):
+        await update.message.reply_text(rapport[i:i+4000])
+
+
 # ── Scheduler hebdomadaire ────────────────────────────────────────────────────
 
 async def job_tableau_bord_hebdo(context: ContextTypes.DEFAULT_TYPE):
@@ -891,6 +979,15 @@ async def job_scan_airbnb(context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application):
     await init_db()
     await init_pending_table()
+
+    # V1.0.2 — créer les 3 dossiers Proton dès le boot (idempotent, échec non bloquant)
+    try:
+        from .tools import imap_actions
+        creation = await imap_actions.ensure_v102_folders()
+        for f, ok in creation.items():
+            logger.info("V1.0.2 dossier " + f + " : " + ("OK" if ok else "FAIL"))
+    except Exception as e:
+        logger.error("[IMAP_ACTION_FAIL] ensure_v102_folders au boot: " + str(e))
 
     # Tableau de bord chaque lundi à 8h EDT (13h UTC)
     application.job_queue.run_daily(
@@ -991,6 +1088,7 @@ def main():
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("forcer_proton", cmd_forcer_proton))
     app.add_handler(CommandHandler("forcer_airbnb", cmd_forcer_airbnb))
+    app.add_handler(CommandHandler("migrate_v102", cmd_migrate_v102))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     print("Julien OS — LangGraph actif...")
