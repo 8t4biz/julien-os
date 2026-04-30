@@ -1,0 +1,46 @@
+# Secrets et credentials — JAMAIS commiter
+secrets.json
+.env
+.env.*
+*.pem
+*.key
+
+# Bases de données — données privées
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+memoire.db*
+
+# Logs runtime
+*.log
+julien_os.log
+nohup.out
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+
+# Backups locaux
+*.backup
+*.backup_*
+*backup_avant*
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Project-specific (Julien OS)
+.chrome_profile/
+.pytest_cache/
+.sessions/
+*.flag
