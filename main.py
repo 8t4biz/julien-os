@@ -853,17 +853,25 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_forcer_proton(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import html as _html
     chat_id = update.effective_chat.id
     await update.message.reply_text("Scan Proton Mail en cours...")
     from .watchers.protonmail_watcher import poll_once
-    nb, rapport = await poll_once(context.bot, chat_id)
-    # Escape chaque ligne — les adresses email contiennent < > qui cassent HTML
-    rapport_esc = "\n".join(_html.escape(line) for line in rapport) if rapport else "(aucun détail)"
-    await update.message.reply_text(
-        f"<b>Scan Proton Mail — résultat</b>\n\n{rapport_esc}",
-        parse_mode="HTML"
+    from .telegram.formatting import format_email_list
+    _, scan_data = await poll_once(context.bot, chat_id)
+    if not scan_data.get("bridge_ok"):
+        msg = "Bridge IMAP — connexion échouée."
+        if scan_data.get("error"):
+            msg += " " + scan_data["error"]
+        await update.message.reply_text(msg)
+        return
+    emails = scan_data.get("emails", [])
+    actionable_count = sum(
+        1 for e in emails if (e.get("priorite") or "NORMAL").upper() != "IGNORER"
     )
+    mode = "actionable" if actionable_count > 0 else "scan"
+    msg = format_email_list(emails, mode=mode)
+    for i in range(0, len(msg), 4000):
+        await update.message.reply_text(msg[i:i + 4000])
 
 
 async def cmd_forcer_airbnb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -943,6 +951,71 @@ async def cmd_migrate_v102(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(rapport[i:i+4000])
 
 
+async def cmd_synthese(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """V1.0.3 — Récap consolidé : pendings actifs + dernier scan + état système. Aucun appel LLM."""
+    import asyncio as _asyncio
+    import json as _json
+    import subprocess as _sp
+    import re as _re
+    from datetime import datetime as _dt, timedelta as _td
+    from .telegram.formatting import format_email_list, age_label
+    from .memory.pending import get_tous_pending_actifs
+    from .memory.scan_state import get_dernier_scan
+
+    pendings_raw = await get_tous_pending_actifs()
+    pendings = []
+    for p in pendings_raw:
+        if p.get("source") != "protonmail":
+            continue
+        item = p.get("item_data") or {}
+        pendings.append({
+            "uid": item.get("uid", "?"),
+            "from": item.get("from", item.get("sender", "")),
+            "subject": item.get("subject", "?"),
+            "age_label": age_label(p.get("created_at", ""), p.get("nb_rappels") or 0),
+        })
+
+    last_scan = await get_dernier_scan("protonmail")
+
+    up_since_iso = None
+    try:
+        out = _sp.check_output(
+            ["systemctl", "show", "julien-os", "-p", "ActiveEnterTimestamp", "--value"],
+            text=True, timeout=5,
+        ).strip()
+        # Format: "Thu 2026-04-30 21:22:30 UTC"
+        m = _re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", out)
+        if m:
+            up_since_iso = _dt.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").isoformat()
+    except Exception as e:
+        logger.error("synthese: systemctl show error: " + str(e))
+
+    imap_errors_24h = 0
+    try:
+        log_path = "/root/julien_os.log"
+        cutoff = _dt.now() - _td(hours=24)
+        # On compte les occurrences brutes de [IMAP_ACTION_FAIL] dans le fichier ;
+        # le timestamp précis n'est pas dans la ligne mais le bot vit < 24h en pratique.
+        with open(log_path) as f:
+            content = f.read()
+        imap_errors_24h = content.count("[IMAP_ACTION_FAIL]")
+    except Exception as e:
+        logger.error("synthese: read log error: " + str(e))
+
+    data = {
+        "now": _dt.now().isoformat(),
+        "pendings": pendings,
+        "last_scan": last_scan,
+        "system": {
+            "up_since": up_since_iso,
+            "imap_errors_24h": imap_errors_24h,
+        },
+    }
+    msg = format_email_list(data, mode="synthese")
+    for i in range(0, len(msg), 4000):
+        await update.message.reply_text(msg[i:i + 4000])
+
+
 # ── Scheduler hebdomadaire ────────────────────────────────────────────────────
 
 async def job_tableau_bord_hebdo(context: ContextTypes.DEFAULT_TYPE):
@@ -962,8 +1035,10 @@ async def job_scan_proton(context: ContextTypes.DEFAULT_TYPE):
     if not chat_id:
         return
     from .watchers.protonmail_watcher import poll_once
-    nb, rapport = await poll_once(context.bot, chat_id)
-    logger.info(f"Batch Proton : {nb} alerte(s) | " + " | ".join(rapport[-3:]))
+    nb, scan_data = await poll_once(context.bot, chat_id)
+    emails = scan_data.get("emails", [])
+    bruit_count = sum(1 for e in emails if (e.get("priorite") or "NORMAL").upper() == "IGNORER")
+    logger.info(f"Batch Proton : {nb} alerte(s), {bruit_count} bruit, bridge_ok={scan_data.get('bridge_ok')}")
 
 
 async def job_scan_airbnb(context: ContextTypes.DEFAULT_TYPE):
@@ -979,6 +1054,12 @@ async def job_scan_airbnb(context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application):
     await init_db()
     await init_pending_table()
+    # V1.0.3 — table scan_state pour persister le dernier scan watcher
+    try:
+        from .memory.scan_state import init_scan_state_table
+        await init_scan_state_table()
+    except Exception as e:
+        logger.error("init_scan_state_table: " + str(e))
 
     # V1.0.2 — créer les 3 dossiers Proton dès le boot (idempotent, échec non bloquant)
     try:
@@ -1089,6 +1170,7 @@ def main():
     app.add_handler(CommandHandler("forcer_proton", cmd_forcer_proton))
     app.add_handler(CommandHandler("forcer_airbnb", cmd_forcer_airbnb))
     app.add_handler(CommandHandler("migrate_v102", cmd_migrate_v102))
+    app.add_handler(CommandHandler("synthese", cmd_synthese))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     print("Julien OS — LangGraph actif...")

@@ -4,6 +4,7 @@ Flux complet : lecture → analyse → options → Telegram → en attente répo
 """
 import logging
 import json
+from datetime import datetime
 
 from .flags import alerte_deja_envoyee, marquer_alerte, reset_alerte
 
@@ -24,67 +25,76 @@ async def charger_credentials() -> dict | None:
         return None
 
 
-async def poll_once(bot, chat_id: int) -> tuple[int, list[str]]:
+async def poll_once(bot, chat_id: int) -> tuple[int, dict]:
     """
     Un cycle de scan complet.
-    Retourne (nb_alertes_envoyees, rapport_lignes).
-    rapport_lignes : liste de strings décrivant chaque étape — pour debug Telegram.
+
+    Retourne (alertes_envoyees, scan_data) où scan_data = {
+        "scan_at": iso timestamp,
+        "bridge_ok": bool,
+        "error": str | None,
+        "emails": [...],            # emails traités CE scan, chacun avec priorite/uid/from/subject/...
+        "alertes_envoyees": int,
+    }
     """
     from ..tools.protonmail import ProtonMailClient
     from ..agents.protonmail_agent import analyser_et_generer, formater_alerte_telegram
     from ..memory.pending import creer_pending, item_deja_traite, get_pending_by_item_id, update_pending_item_data
+    from ..memory.scan_state import enregistrer_scan
 
-    rapport = []
+    scan_at = datetime.now().isoformat()
+    scan_data = {
+        "scan_at": scan_at,
+        "bridge_ok": False,
+        "error": None,
+        "emails": [],
+        "alertes_envoyees": 0,
+    }
 
     creds = await charger_credentials()
     if not creds:
-        msg = "❌ bridge_password manquant dans secrets.json"
-        logger.warning(f"ProtonMail: {msg}")
-        rapport.append(msg)
-        return 0, rapport
+        scan_data["error"] = "bridge_password manquant dans secrets.json"
+        logger.warning("ProtonMail: " + scan_data["error"])
+        return 0, scan_data
 
     client = ProtonMailClient(
         email_addr=creds["email"],
         bridge_password=creds["bridge_password"],
     )
 
-    # 1. Connexion Bridge
     connecte = await client.login()
+    scan_data["bridge_ok"] = connecte
     logger.info(f"ProtonMail: login Bridge → {'OK' if connecte else 'ÉCHEC'}")
-    rapport.append(f"{'✅' if connecte else '❌'} Bridge IMAP → {'connecté' if connecte else 'ÉCHEC connexion'}")
 
     if not connecte:
+        scan_data["error"] = "connexion IMAP échouée"
         if not alerte_deja_envoyee(_FLAG):
             marquer_alerte(_FLAG)
             try:
                 await bot.send_message(
                     chat_id=chat_id,
                     text=(
-                        "⚠️ Proton Mail Bridge — connexion IMAP échouée\n\n"
-                        "Vérifie sur le VPS :\n"
-                        "<code>systemctl status proton-bridge</code>\n"
-                        "<code>systemctl restart proton-bridge</code>"
+                        "Proton Mail Bridge — connexion IMAP échouée.\n"
+                        "Sur le VPS : systemctl status proton-bridge ; systemctl restart proton-bridge"
                     ),
-                    parse_mode="HTML",
                 )
             except Exception as e:
                 logger.error(f"ProtonMail: alerte Bridge échouée: {e}")
-        return 0, rapport
+        return 0, scan_data
 
     if alerte_deja_envoyee(_FLAG):
         reset_alerte(_FLAG)
         logger.info("ProtonMail: Bridge OK, flag réinitialisé")
 
-    # 2. Récupération emails non lus
     emails = await client.get_unread_emails(limit=10)
     logger.info(f"ProtonMail: get_unread_emails → {len(emails)} email(s)")
-    rapport.append(f"📬 Emails non lus trouvés : {len(emails)}")
 
     if not emails:
-        rapport.append("   → Boîte vide ou tous lus")
-        return 0, rapport
+        await enregistrer_scan("protonmail", total=0, actionable=0, bruit=0)
+        return 0, scan_data
 
     alertes_envoyees = 0
+    nouveau_emails = []  # emails traités ce scan (skipped exclus)
 
     for email_data in emails:
         email_id = email_data["id"]
@@ -93,10 +103,7 @@ async def poll_once(bot, chat_id: int) -> tuple[int, list[str]]:
         expediteur = email_data.get("from", "?")
 
         logger.info(f"ProtonMail: traitement uid={uid} sujet={sujet!r} from={expediteur!r}")
-        rapport.append(f"\n📧 uid={uid} | {sujet[:60]}")
-        rapport.append(f"   De : {expediteur[:60]}")
 
-        # Anti-doublon
         deja = await item_deja_traite("protonmail", email_id)
         logger.info(f"ProtonMail: uid={uid} item_deja_traite → {deja}")
         if deja:
@@ -110,48 +117,35 @@ async def poll_once(bot, chat_id: int) -> tuple[int, list[str]]:
                     refreshed["folder"] = email_data.get("folder", "INBOX")
                     await update_pending_item_data(existant["id"], refreshed)
                     logger.info(f"ProtonMail: pending #{existant['id']} rafraîchi → uid={uid} folder={refreshed['folder']!r}")
-                    rapport.append(f"   🔄 pending #{existant['id']} ({existant['statut']}) — UID rafraîchi {stored_uid}→{uid}")
-                else:
-                    rapport.append(f"   ⏭ déjà traité — pending #{existant['id']} ({existant['statut']})")
-            else:
-                rapport.append("   ⏭ déjà traité (pending_actions) — skippé")
             continue
 
-        # Corps complet — en précisant le dossier source
         folder = email_data.get("folder", "INBOX")
         body = await client.get_email_body_by_uid(uid, folder=folder)
         if body:
             email_data["body"] = body
         logger.info(f"ProtonMail: uid={uid} corps chargé : {len(body)} chars depuis {folder!r}")
-        rapport.append(f"   📄 Corps : {len(body)} chars  [{folder}]")
 
-        # Analyse LLM
         result = await analyser_et_generer(email_data)
         priorite = result.get("priorite", "NORMAL").upper()
         contexte = result.get("contexte", "")
+        email_data["priorite"] = priorite
         logger.info(f"ProtonMail: uid={uid} LLM → priorite={priorite} contexte={contexte[:80]!r}")
-        rapport.append(f"   🤖 LLM : {priorite} — {contexte[:80]}")
 
         if priorite == "IGNORER":
-            rapport.append("   🚫 Classé IGNORER → pas d'alerte envoyée")
-            # V1.0.2 Hook C — déplacer vers "Auto-classés bruit"
             try:
                 from ..tools import imap_actions
-                await imap_actions.mark_and_move(
-                    uid, folder, imap_actions.FOLDER_BRUIT
-                )
+                await imap_actions.mark_and_move(uid, folder, imap_actions.FOLDER_BRUIT)
             except Exception as e:
                 logger.error("[IMAP_ACTION_FAIL] hook C uid=" + str(uid) + ": " + str(e))
+            nouveau_emails.append(email_data)
             continue
 
-        # Options
         options = [
             result.get("option_courte", "Option courte non disponible"),
             result.get("option_complete", "Option complète non disponible"),
             "Ignorer / Traiter plus tard",
         ]
 
-        # Pending
         pending_id = await creer_pending(
             source="protonmail",
             item_id=email_id,
@@ -160,7 +154,6 @@ async def poll_once(bot, chat_id: int) -> tuple[int, list[str]]:
         )
         logger.info(f"ProtonMail: uid={uid} pending créé id={pending_id}")
 
-        # Envoi Telegram
         alerte_msg = formater_alerte_telegram(email_data, contexte, options)
         alerte_msg += f"\n\n<i>[ID:{pending_id}]</i>"
 
@@ -172,8 +165,18 @@ async def poll_once(bot, chat_id: int) -> tuple[int, list[str]]:
             )
 
         alertes_envoyees += 1
-        rapport.append(f"   ✅ Alerte envoyée (pending #{pending_id})")
+        nouveau_emails.append(email_data)
         logger.info(f"ProtonMail: uid={uid} alerte envoyée [{priorite}]")
 
-    rapport.append(f"\n📊 Total : {alertes_envoyees} alerte(s) envoyée(s)")
-    return alertes_envoyees, rapport
+    actionable_count = sum(1 for e in nouveau_emails if (e.get("priorite") or "NORMAL").upper() != "IGNORER")
+    bruit_count = sum(1 for e in nouveau_emails if (e.get("priorite") or "NORMAL").upper() == "IGNORER")
+    await enregistrer_scan(
+        "protonmail",
+        total=len(nouveau_emails),
+        actionable=actionable_count,
+        bruit=bruit_count,
+    )
+
+    scan_data["emails"] = nouveau_emails
+    scan_data["alertes_envoyees"] = alertes_envoyees
+    return alertes_envoyees, scan_data
