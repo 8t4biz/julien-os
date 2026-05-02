@@ -186,6 +186,31 @@ async def ignorer_pending(pending_id: int):
         await db.commit()
 
 
+async def annuler_redaction(pending_id: int):
+    """V1.0.3.1 — Annule une rédaction en cours : repasse en en_attente, efface reponse_choisie.
+
+    Appelé UNIQUEMENT depuis le flow watcher batch (boutons 1/2/3 + OUI/NON)
+    quand Julien tape NON sur l'écran de confirmation finale. Le pending,
+    auparavant passé en statut 'confirme' par confirmer_pending(), redevient
+    'en_attente' et redevient éligible à un nouveau choix.
+
+    Pas appelé depuis le flow conversationnel (suggest_email_reply de l'agent
+    V1.0.3.1) : ce flow ne crée pas d'état DB intermédiaire — un draft généré
+    par l'agent reste en mémoire conversationnelle uniquement, et le pending
+    DB n'est touché qu'au moment de send_email_reply (qui appelle marquer_envoye).
+    Donc pour le flow agent, NON est purement conversationnel et n'a aucun
+    effet DB à annuler.
+
+    Distinct de ignorer_pending (qui termine définitivement le pending en
+    statut 'ignore', cible du bouton 3 et du Hook B IMAP)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE pending_actions SET statut = 'en_attente', reponse_choisie = NULL WHERE id = ?",
+            (pending_id,)
+        )
+        await db.commit()
+
+
 
 async def get_pending_confirme_orphelin() -> dict | None:
     """

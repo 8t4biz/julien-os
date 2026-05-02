@@ -21,7 +21,7 @@ from .memory.store import (
 )
 from .memory.pending import (
     init_pending_table, get_pending_actif,
-    confirmer_pending, marquer_envoye, ignorer_pending,
+    confirmer_pending, marquer_envoye, ignorer_pending, annuler_redaction,
     get_tous_pending_actifs, get_pending_a_rappeler, marquer_rappel_envoye,
     get_pending_confirme_orphelin,
 )
@@ -49,6 +49,13 @@ ETIQUETTES = {
 
 # État de confirmation en cours (pending_id → texte final)
 _en_attente_confirmation: dict[int, dict] = {}  # chat_id → {pending_id, texte, source}
+
+# V1.0.3.1 — opt-in explicite pour la rédaction custom (bouton « 2 — Personnalisée »).
+# Tant que ce dict ne contient pas chat_id, tout free-text avec pending actif part
+# vers handle_conversation (agent V1.0.3.1). Une fois Julien dans ce mode, le
+# prochain message texte est interprété comme l'instruction à passer à
+# _generer_reponse_custom puis le state est purgé.
+_en_attente_custom: dict[int, dict] = {}  # chat_id → {pending_id, source, item_data}
 
 # Sessions de login interactif en cours
 _login_sessions: dict[int, asyncio.Queue] = {}  # chat_id → queue
@@ -98,8 +105,12 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return True
         elif texte.upper() in ("NON", "NO", "N", "ANNULER", "CANCEL"):
             del _en_attente_confirmation[chat_id]
-            await ignorer_pending(state["pending_id"])
-            await update.message.reply_text("Action annulée.")
+            # V1.0.3.1 — NON annule la rédaction sans changer le statut métier.
+            # Le pending repasse en en_attente, prêt pour une nouvelle proposition.
+            await annuler_redaction(state["pending_id"])
+            await update.message.reply_text(
+                "Rédaction annulée. Le pending reste en attente."
+            )
             return True
         else:
             await update.message.reply_text(
@@ -107,7 +118,41 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
             return True
 
-    # Étape 1 : choix parmi les options (1, 2, 3 ou texte libre)
+    # Étape 1bis : Julien est en mode « rédaction personnalisée » (opt-in via bouton 2).
+    # Le prochain message texte est l'instruction à passer au LLM. On consomme
+    # l'état avant tout await, pour qu'un crash ne laisse pas Julien coincé
+    # dans le mode custom à perpétuité.
+    if chat_id in _en_attente_custom:
+        custom_state = _en_attente_custom.pop(chat_id)
+        await update.message.reply_text("Rédaction en cours...")
+        try:
+            texte_choisi = await _generer_reponse_custom(
+                texte, custom_state["item_data"], custom_state["source"]
+            )
+        except Exception as e:
+            logger.error("_generer_reponse_custom failed : " + str(e))
+            await update.message.reply_text(f"Échec rédaction custom : {e}")
+            return True
+        if not texte_choisi:
+            await update.message.reply_text("Le LLM a renvoyé un texte vide. Réessaie.")
+            return True
+        await confirmer_pending(custom_state["pending_id"], texte_choisi)
+        _en_attente_confirmation[chat_id] = {
+            "pending_id": custom_state["pending_id"],
+            "source": custom_state["source"],
+            "item_data": custom_state["item_data"],
+            "texte": texte_choisi,
+        }
+        await update.message.reply_text(
+            f"Voici ce que je vais envoyer :\n\n{texte_choisi}\n\n"
+            "Tape OUI pour envoyer, NON pour annuler."
+        )
+        return True
+
+    # Étape 1 : choix de bouton (1, 2, 3) sur un pending actif.
+    # V1.0.3.1 — tout autre free-text (incluant « réponds à #N ») est routé vers
+    # handle_conversation (return False). _generer_reponse_custom n'est plus
+    # déclenché par len(texte) > 10 — il faut passer par le bouton 2.
     pending = await get_pending_actif()
     if not pending:
         return False
@@ -117,11 +162,22 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     source = pending["source"]
     item_data = pending["item_data"]
 
-    texte_choisi = None
-
-    if texte in ("1", "2"):
-        idx = int(texte) - 1
-        texte_choisi = options[idx] if idx < len(options) else None
+    if texte == "1":
+        texte_choisi = options[0] if options else None
+        if not texte_choisi:
+            return False
+    elif texte == "2":
+        # V1.0.3.1 — bouton 2 entre en mode rédaction personnalisée (opt-in explicite).
+        _en_attente_custom[chat_id] = {
+            "pending_id": pending_id,
+            "source": source,
+            "item_data": item_data,
+        }
+        await update.message.reply_text(
+            "Mode rédaction personnalisée. Décris ton instruction au prochain message "
+            "(ex: « réponse courte, accepte mais propose un appel demain »)."
+        )
+        return True
     elif texte == "3":
         await ignorer_pending(pending_id)
         # V1.0.2 Hook B — pour les pendings Proton, déplacer vers "À reprendre"
@@ -136,12 +192,9 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 logger.error("[IMAP_ACTION_FAIL] hook B: " + str(e))
         await update.message.reply_text("Message ignoré.")
         return True
-    elif len(texte) > 10:
-        # Texte libre → génération d'une réponse custom
-        await update.message.reply_text("Rédaction en cours...")
-        texte_choisi = await _generer_reponse_custom(texte, item_data, source)
     else:
-        return False  # pas une réponse à un pending
+        # Tout free-text (« réponds à #12 », « ouvre #5 », etc.) -> agent conversationnel
+        return False
 
     if not texte_choisi:
         return False
@@ -158,8 +211,7 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     await update.message.reply_text(
         f"Voici ce que je vais envoyer :\n\n{texte_choisi}\n\n"
-        "Réponds **OUI** pour envoyer, **NON** pour annuler.",
-        parse_mode="HTML"
+        "Tape OUI pour envoyer, NON pour annuler."
     )
     return True
 
@@ -969,7 +1021,7 @@ async def cmd_synthese(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
         item = p.get("item_data") or {}
         pendings.append({
-            "uid": item.get("uid", "?"),
+            "pending_id": p["id"],
             "from": item.get("from", item.get("sender", "")),
             "subject": item.get("subject", "?"),
             "age_label": age_label(p.get("created_at", ""), p.get("nb_rappels") or 0),

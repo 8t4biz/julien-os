@@ -221,6 +221,10 @@ def formater_alerte_telegram(email_data: dict, contexte: str, options: list[str]
     icone = "\U0001f3e0" if is_airbnb else "\U0001f4e7"
     label = "AIRBNB" if is_airbnb else "PROTON MAIL"
 
+    # V1.0.3.1 \u2014 Bouton 2 = opt-in pour r\u00e9daction personnalis\u00e9e (mode custom).
+    # Bouton 1 reste l'option courte pr\u00e9-r\u00e9dig\u00e9e par l'agent batch.
+    # Le free-text en dehors de 1/2/3 part d\u00e9sormais vers l'agent conversationnel
+    # (\u00ab r\u00e9ponds \u00e0 #N \u00bb, \u00ab ouvre #N \u00bb etc.).
     msg = (
         f"{icone} <b>{label}</b>\n"
         f"De : {expediteur}\n"
@@ -231,10 +235,10 @@ def formater_alerte_telegram(email_data: dict, contexte: str, options: list[str]
         f"<b>1\ufe0f\u20e3 Option courte</b>\n"
         f"{opt[0]}\n\n"
         f"{sep}\n"
-        f"<b>2\ufe0f\u20e3 Option compl\u00e8te</b>\n"
-        f"{opt[1]}\n\n"
+        f"<b>2\ufe0f\u20e3 R\u00e9ponse personnalis\u00e9e</b>\n"
+        f"R\u00e9ponds <b>2</b> puis d\u00e9cris ton instruction au prochain message.\n\n"
         f"{sep}\n"
         f"<b>3\ufe0f\u20e3</b> {opt[2]}\n\n"
-        f"R\u00e9ponds <b>1</b>, <b>2</b>, <b>3</b> ou \u00e9cris ton instruction."
+        f"R\u00e9ponds <b>1</b>, <b>2</b>, <b>3</b> ou demande \u00e0 l'agent (\u00ab r\u00e9ponds \u00e0 #N \u00bb, \u00ab ouvre #N \u00bb)."
     )
     return msg

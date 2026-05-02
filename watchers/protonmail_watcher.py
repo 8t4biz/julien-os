@@ -152,6 +152,7 @@ async def poll_once(bot, chat_id: int) -> tuple[int, dict]:
             item_data=email_data,
             options=options,
         )
+        email_data["pending_id"] = pending_id
         logger.info(f"ProtonMail: uid={uid} pending créé id={pending_id}")
 
         alerte_msg = formater_alerte_telegram(email_data, contexte, options)

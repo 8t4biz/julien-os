@@ -114,10 +114,10 @@ def _format_scan(emails, mode: str) -> str:
         lignes.append("   aucun")
     else:
         for e in actionable:
-            uid = e.get("uid", "?")
+            pid = e.get("pending_id") or e.get("id") or "?"
             sender = _short_sender(e.get("from", e.get("sender", "")))
             subject = _truncate(e.get("subject", "?"), SUBJECT_MAX)
-            lignes.append(f"   uid={uid}  {sender} — {subject}")
+            lignes.append(f"   #{pid}  {sender} — {subject}")
             if mode == "actionable":
                 snippet_src = e.get("snippet") or e.get("body") or ""
                 preview = _truncate(snippet_src, PREVIEW_MAX)
@@ -142,11 +142,11 @@ def _format_synthese(data) -> str:
     if pendings:
         lignes.append(f"Pendings actifs ({len(pendings)})")
         for p in pendings:
-            uid = p.get("uid", "?")
+            pid = p.get("pending_id") or p.get("id") or "?"
             sender = _short_sender(p.get("from", p.get("sender", "")))
             subject = _truncate(p.get("subject", "?"), SUBJECT_MAX)
             age = p.get("age_label") or ""
-            base = f"   uid={uid}  {sender} — {subject}"
+            base = f"   #{pid}  {sender} — {subject}"
             if age:
                 lignes.append(f"{base}    {age}")
             else:

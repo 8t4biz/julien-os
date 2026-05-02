@@ -32,8 +32,10 @@ EMAIL_TOOLS = [
     {
         "name": "read_emails",
         "description": (
-            "Liste les emails Proton non traités. Retourne id, expéditeur, sujet, "
-            "date, et résumé court. Utilise dès que Julien demande de regarder ses emails."
+            "Liste les emails Proton en attente (pendings actifs). Chaque entrée commence par "
+            "#N où N est l'identifiant pending stable affiché à Julien dans Telegram. "
+            "Utilise quand Julien demande à voir sa liste, ou pour identifier le bon #N "
+            "avant de cibler un email."
         ),
         "input_schema": {
             "type": "object",
@@ -48,24 +50,30 @@ EMAIL_TOOLS = [
     },
     {
         "name": "get_email_details",
-        "description": "Récupère le corps complet d'un email à partir de son id (obtenu via read_emails).",
+        "description": (
+            "Affiche le contenu complet d'un email (intent READ). À appeler quand Julien dit "
+            "« ouvre #N », « lis #N », « montre #N », « contenu de #N », « affiche #N ». "
+            "Le paramètre email_id est la valeur N (ex: '12' pour #12). NE génère PAS de "
+            "réponse, n'appelle PAS suggest_email_reply après — c'est une lecture seule."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"email_id": {"type": "string"}},
+            "properties": {"email_id": {"type": "string", "description": "L'identifiant N de #N."}},
             "required": ["email_id"],
         },
     },
     {
         "name": "suggest_email_reply",
         "description": (
-            "Génère une suggestion de réponse pour un email. tone_hint optionnel: "
-            "'direct', 'amical', 'formel', 'court'. Toujours afficher le draft à Julien "
-            "avant tout envoi."
+            "Génère un brouillon de réponse pour un email (intent REPLY). À appeler quand Julien "
+            "dit « réponds à #N », « rédige une réponse à #N », « propose une réponse pour #N ». "
+            "tone_hint optionnel : 'direct', 'amical', 'formel', 'court'. Affiche toujours le "
+            "draft à Julien et demande confirmation OUI explicite avant d'envoyer."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "email_id": {"type": "string"},
+                "email_id": {"type": "string", "description": "L'identifiant N de #N."},
                 "tone_hint": {"type": "string"},
             },
             "required": ["email_id"],
@@ -74,13 +82,14 @@ EMAIL_TOOLS = [
     {
         "name": "send_email_reply",
         "description": (
-            "Envoie une réponse à un email. NE JAMAIS appeler sans confirmation explicite "
-            "de Julien dans la conversation. Refuse automatiquement si le destinataire est un noreply."
+            "Envoie effectivement une réponse à un email. NE JAMAIS appeler sans confirmation "
+            "OUI explicite de Julien dans le tour de conversation précédent. Refuse "
+            "automatiquement si le destinataire est un noreply."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "email_id": {"type": "string"},
+                "email_id": {"type": "string", "description": "L'identifiant N de #N."},
                 "body": {"type": "string"},
             },
             "required": ["email_id", "body"],
@@ -170,7 +179,7 @@ def _format_pending_summary(p):
     item = p["item_data"]
     snippet = (item.get("snippet") or item.get("body", "") or "").strip().replace("\n", " ")
     return (
-        f"[{p['id']}] De: {item.get('from', '?')}\n"
+        f"#{p['id']} De: {item.get('from', '?')}\n"
         f"    Sujet: {item.get('subject', '?')}\n"
         f"    Date: {item.get('date', '?')}\n"
         f"    Résumé: {snippet[:200]}"
@@ -253,13 +262,13 @@ async def execute_send_email_reply(email_id: str, body: str) -> str:
     expediteur = item.get("from", "").lower()
     if any(pat in expediteur for pat in NOREPLY_PATTERNS):
         return (
-            f"⛔ Envoi bloqué : {item.get('from', '?')} est une adresse no-reply. "
+            f"Envoi bloqué : {item.get('from', '?')} est une adresse no-reply. "
             "SMTP refusé conformément au filtre _executer_action."
         )
     ok, err = await _send_smtp_reply(item, body)
     if err:
-        return f"❌ Erreur envoi : {err}"
-    return "✅ Envoyé." if ok else "❌ Échec SMTP."
+        return f"Erreur envoi : {err}"
+    return "Envoyé." if ok else "Échec SMTP."
 
 
 EMAIL_HANDLERS = {

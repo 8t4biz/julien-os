@@ -1,11 +1,19 @@
 """Agent conversationnel V1 Niveau 2 — Telegram texte libre, gestion email Proton.
 
+V1.0.3.1 :
+- Convention #N dans l'UI (où N = pending_actions.id)
+- Distinction stricte intent read / intent reply
+- Helper parse_pending_id_from_text + detect_intent (déterministes, exposés pour tests)
+- Pas de fallback silencieux « premier pending »
+- Plus aucun emoji, aucun **, aucun • dans les réponses
+
 Reçoit un message texte de Julien, dialogue avec Claude Sonnet 4.5 en boucle tool_use,
 loggue chaque appel LLM (tokens, coût), retourne le texte final à envoyer.
 
 Async natif — conçu pour être awaité depuis le handler Telegram.
 """
 import logging
+import re
 
 from anthropic import AsyncAnthropic
 from config import ANTHROPIC_API_KEY
@@ -25,26 +33,115 @@ MODEL = "claude-sonnet-4-5"
 MAX_TOKENS = 2048
 MAX_ITERATIONS = 5
 
-SYSTEM_PROMPT = f"""Tu es l'assistant personnel de Julien, accessible via Telegram.
+# Mots-clés d'intent (français + un peu d'anglais usuel)
+_INTENT_READ_KEYWORDS = (
+    "ouvre", "ouvrir", "lis", "lire", "montre", "montrer",
+    "affiche", "afficher", "détail", "detail", "contenu",
+    "show", "open", "read",
+)
+_INTENT_REPLY_KEYWORDS = (
+    "réponds", "repond", "réponse", "reponse", "rédige", "redige",
+    "rédiger", "rediger", "propose", "draft",
+    "reply", "respond", "answer",
+)
+_INTENT_SEND_KEYWORDS = ("envoie", "envoyer", "envois", "send")
 
-Profil de Julien :
-{JULIEN_PROFILE_TEXT}
 
-Règles de conversation :
+def parse_pending_id_from_text(text: str) -> int | None:
+    """Extrait le premier identifiant #N (ou nombre nu) du message.
+
+    Tolère #12, # 12, ou un nombre seul après un mot-clé d'intent.
+    Retourne None si aucun nombre clair n'est trouvé.
+    """
+    if not text:
+        return None
+    # Priorité au format explicite #N
+    m = re.search(r"#\s*(\d+)", text)
+    if m:
+        return int(m.group(1))
+    # Sinon : nombre nu après un mot-clé d'action (« ouvre 12 », « réponds à 5 »)
+    keywords = _INTENT_READ_KEYWORDS + _INTENT_REPLY_KEYWORDS + _INTENT_SEND_KEYWORDS
+    pattern = r"(?:" + "|".join(re.escape(k) for k in keywords) + r")\b[^\d]{0,15}(\d+)"
+    m = re.search(pattern, text.lower())
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def detect_intent(text: str) -> str | None:
+    """Détecte l'intent dominant : 'read', 'reply', 'send', ou None si ambigu/inconnu.
+
+    Si plusieurs intents sont présents, l'ordre de priorité est send > reply > read
+    (un message « envoie » est plus engageant qu'un « rédige » qui est plus engageant
+    qu'un « ouvre »).
+    """
+    if not text:
+        return None
+    low = text.lower()
+    has_read = any(re.search(r"\b" + re.escape(k), low) for k in _INTENT_READ_KEYWORDS)
+    has_reply = any(re.search(r"\b" + re.escape(k), low) for k in _INTENT_REPLY_KEYWORDS)
+    has_send = any(re.search(r"\b" + re.escape(k), low) for k in _INTENT_SEND_KEYWORDS)
+    if has_send:
+        return "send"
+    if has_reply:
+        return "reply"
+    if has_read:
+        return "read"
+    return None
+
+
+# Consignes V1.0.3.1 — séparées du profil pour pouvoir tester l'absence d'emoji/markdown
+# sans inclure le contenu (parfois enrichi en Markdown) du profil personnel de Julien.
+_INSTRUCTIONS_V103_1 = """Règles de conversation :
 - Réponses courtes adaptées à Telegram (mobile)
-- Pas de markdown lourd : pas de tableaux, pas de ***, pas de listes à puces excessives
+- Aucun emoji. Aucune mise en forme Markdown (ni gras, ni italique, ni tableaux, ni listes à puces typographiques)
 - Français par défaut, guillemets « », pas de tirets longs
 - Direct, pas de flatterie
 - Challenge les incohérences si tu en repères
 
-Outils disponibles : email Proton uniquement (lire, voir détail, suggérer réponse, envoyer).
+Convention identifiants :
+- Les emails sont identifiés par #N dans l'UI Telegram, où N est l'ID interne du pending (pending_actions.id).
+- Quand Julien dit « #12 » ou « 12 », c'est ce N.
+- N est stable et unique. Il n'a aucun rapport avec l'UID IMAP du serveur Proton.
+- Pour appeler un outil, passe N en string comme email_id (ex: email_id="12").
 
-Comportement :
-- Lis et analyse sans demander la permission
-- Demande confirmation explicite avant tout envoi d'email
-- Si Julien demande quelque chose qui sort de la gestion email (Notion, agenda, etc.),
-  réponds que tu ne couvres que les emails dans cette version V1
+Distinction lecture (READ) vs réponse (REPLY) :
+- « ouvre #N », « lis #N », « montre #N », « contenu de #N », « affiche #N », « détail #N »
+  -> appelle UNIQUEMENT get_email_details. Ne génère PAS de réponse, n'appelle PAS suggest_email_reply.
+- « réponds à #N », « rédige une réponse à #N », « propose une réponse pour #N »
+  -> appelle suggest_email_reply (au besoin précédé de get_email_details si tu n'as pas le contexte).
+  Affiche le draft. TERMINE TOUJOURS ta réponse par EXACTEMENT cette phrase, sans
+  ajout, sans variante, sans option de modification :
+
+      Tape OUI pour envoyer, NON pour annuler.
+
+  Une seule décision binaire à la fois. Si Julien veut une autre version, il
+  répondra NON puis demandera explicitement (« réponds à #N en plus court »
+  par exemple) et tu généreras un nouveau draft.
+- « envoie », « envoyer », « OUI » après une suggestion -> appelle send_email_reply.
+- « NON » après une suggestion -> n'envoie rien, confirme à Julien que le pending
+  reste en attente. Une seule phrase.
+- Phrase ambiguë qui combine deux intents (« ouvre #12 et propose une réponse ») :
+  fais les deux dans l'ordre — d'abord get_email_details, puis suggest_email_reply.
+
+Cas où l'identifiant n'est pas explicite :
+- Si Julien ne mentionne pas de #N et qu'un seul pending est en statut en_attente,
+  utilise celui-là (en l'annonçant : « Je prends #N de Untel sur Sujet, ok ? »).
+- Si plusieurs pendings sont en attente et que Julien n'a pas précisé,
+  appelle read_emails et demande à Julien quel #N viser. Ne choisis JAMAIS au hasard.
+
+Outils disponibles : email Proton uniquement (lire la liste, voir détail, suggérer réponse, envoyer).
+
+Si Julien demande quelque chose hors gestion email (Notion, agenda, etc.), dis que tu ne couvres
+que les emails dans cette version V1.
 """
+
+SYSTEM_PROMPT = (
+    "Tu es l'assistant personnel de Julien, accessible via Telegram.\n\n"
+    "Profil de Julien :\n"
+    f"{JULIEN_PROFILE_TEXT}\n\n"
+    f"{_INSTRUCTIONS_V103_1}"
+)
 
 _client = None
 
@@ -58,12 +155,7 @@ def _get_client() -> AsyncAnthropic:
 
 
 def _to_anthropic_messages(messages: list[dict]) -> list[dict]:
-    """Adapte la sortie de ConversationSession.get_messages au format API Anthropic.
-
-    - role='tool' (notre convention de stockage) → role='user' (Anthropic n'a pas de rôle 'tool',
-      les tool_result sont des content blocks dans des messages user).
-    - On retire toute clé top-level non supportée (ex: 'tool_call_id' annoté côté DB).
-    """
+    """Adapte la sortie de ConversationSession.get_messages au format API Anthropic."""
     out = []
     for m in messages:
         role = "user" if m["role"] == "tool" else m["role"]
@@ -78,8 +170,7 @@ async def handle_conversation(
 ) -> str:
     """Point d'entrée — reçoit un texte Julien, retourne le texte de réponse Telegram.
 
-    Boucle tool_use limitée à MAX_ITERATIONS=5 itérations LLM. Chaque appel est loggé
-    (tokens + coût) dans conversation_llm_calls.
+    Boucle tool_use limitée à MAX_ITERATIONS=5. Chaque appel LLM est loggé.
     """
     db = db_path or DEFAULT_DB_PATH
     await init_llm_logging_schema(db_path=db)
@@ -116,7 +207,6 @@ async def handle_conversation(
             db_path=db,
         )
 
-        # Stocke la réponse assistant complète (content blocks) — round-trip JSON via add_message.
         content_blocks = [b.model_dump() for b in response.content]
         session.add_message(chat_id, role="assistant", content=content_blocks)
 
@@ -136,7 +226,6 @@ async def handle_conversation(
                     )
             continue
 
-        # end_turn (ou tout autre stop_reason qui n'est pas tool_use) → on extrait le texte.
         text = "".join(b.text for b in response.content if b.type == "text")
         return text or "Action effectuée."
 

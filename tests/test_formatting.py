@@ -80,24 +80,24 @@ def test_actionable_avec_preview_tronquee():
     longue = ("Bonjour, je voulais savoir le code d'accès pour entrer dans le "
               "logement ce week-end avec ma famille on arrive samedi vers 16h")
     emails = [
-        {"uid": "12", "from": '"Cheryl" <c@x.com>',
+        {"pending_id": 12, "from": '"Cheryl" <c@x.com>',
          "subject": "code d'accès Airbnb",
          "snippet": longue,
          "priorite": "PRIORITAIRE"},
-        {"uid": "18", "from": '"Janine Daoust" <j@daoust.com>',
+        {"pending_id": 18, "from": '"Janine Daoust" <j@daoust.com>',
          "subject": "ajustement mandat",
          "snippet": "Hello Julien, suite à notre échange j'ai besoin de revoir.",
          "priorite": "NORMAL"},
     ] + [
-        {"uid": str(20 + i), "from": '"Anthropic" <a@a.com>',
+        {"pending_id": 20 + i, "from": '"Anthropic" <a@a.com>',
          "subject": "x", "priorite": "IGNORER"} for i in range(4)
     ] + [
-        {"uid": str(30 + i), "from": '"GitHub" <g@g.com>',
+        {"pending_id": 30 + i, "from": '"GitHub" <g@g.com>',
          "subject": "y", "priorite": "IGNORER"} for i in range(2)
     ]
     out = format_email_list(emails, mode="actionable")
     assert "À traiter (2)" in out
-    assert "uid=12" in out
+    assert "#12" in out
     assert "Cheryl" in out
     assert "code d'accès Airbnb" in out
     assert "« Bonjour" in out
@@ -121,9 +121,9 @@ def test_synthese_avec_donnees():
     data = {
         "now": "2026-04-30T18:32:00",
         "pendings": [
-            {"uid": "18", "from": '"Janine Daoust" <j@x.com>',
+            {"pending_id": 18, "from": '"Janine Daoust" <j@x.com>',
              "subject": "ajustement mandat", "age_label": "J+1"},
-            {"uid": "21", "from": '"Mathieu Gaudreault" <m@cofomo.com>',
+            {"pending_id": 21, "from": '"Mathieu Gaudreault" <m@cofomo.com>',
              "subject": "Cofomo #84519", "age_label": "nouveau"},
         ],
         "last_scan": {
@@ -138,7 +138,7 @@ def test_synthese_avec_donnees():
     out = format_email_list(data, mode="synthese")
     assert "Synthèse — 30 avril 18h32" in out
     assert "Pendings actifs (2)" in out
-    assert "uid=18" in out
+    assert "#18" in out
     assert "Janine Daoust" in out
     assert "J+1" in out
     assert "nouveau" in out
