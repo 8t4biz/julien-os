@@ -57,6 +57,13 @@ _en_attente_confirmation: dict[int, dict] = {}  # chat_id → {pending_id, texte
 # _generer_reponse_custom puis le state est purgé.
 _en_attente_custom: dict[int, dict] = {}  # chat_id → {pending_id, source, item_data}
 
+# V1.0.3.2 — Fix Friction 8 : la liste affichée par /mails capture sa propre
+# numérotation. Sans ce state, "1" après /mails tombait dans
+# get_pending_actif() et générait un draft pour un email totalement étranger.
+# TTL 5 min, état purgé après usage unique OU au /reset.
+_MAILS_SELECTION_TTL_SEC = 300
+_mails_selection: dict[int, dict] = {}  # chat_id → {emails: list, expires_at: float}
+
 # Sessions de login interactif en cours
 _login_sessions: dict[int, asyncio.Queue] = {}  # chat_id → queue
 
@@ -89,6 +96,63 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """
     chat_id = update.effective_chat.id
     texte = update.message.text.strip()
+
+    # V1.0.3.2 — PRIORITÉ ABSOLUE : si Julien vient de voir /mails, sa prochaine
+    # sélection numérique cible CETTE liste, pas un pending DB. Sans ce check
+    # avant tout le reste, "1" basculait dans get_pending_actif() et générait
+    # un draft pour un email totalement étranger (Friction 8).
+    if chat_id in _mails_selection:
+        import time as _time
+        sel = _mails_selection[chat_id]
+        if _time.time() > sel["expires_at"]:
+            del _mails_selection[chat_id]
+            logger.info(f"/mails selection expirée pour chat_id={chat_id}")
+        elif texte in ("1", "2", "3", "4", "5"):
+            idx = int(texte) - 1
+            emails = sel["emails"]
+            del _mails_selection[chat_id]  # consume — single use
+            if idx >= len(emails):
+                await update.message.reply_text(
+                    f"Index {texte} hors limites (la liste contient {len(emails)} emails)."
+                )
+                return True
+            email = emails[idx]
+            # On route vers l'agent conversationnel avec le contexte explicite
+            # de l'email sélectionné. L'agent décide de l'action (lire, proposer
+            # une réponse, etc.) en se basant sur CES données, pas sur un pending
+            # DB du passé.
+            from_clean = email.get("from", "?")
+            subject_clean = email.get("subject", "?")
+            date_clean = email.get("date", "?")
+            unread_clean = "non lu" if email.get("unread") else "déjà lu"
+            contexte_msg = (
+                f"[Sélection /mails — index {texte}] "
+                f"Julien vient de sélectionner cet email depuis la liste /mails. "
+                f"Affiche-lui les informations clés et demande-lui ce qu'il veut faire "
+                f"(ouvrir le contenu complet, proposer une réponse, archiver, etc.). "
+                f"NE GÉNÈRE AUCUN DRAFT D'ENVOI tant que Julien ne te le demande pas explicitement.\n\n"
+                f"De : {from_clean}\n"
+                f"Sujet : {subject_clean}\n"
+                f"Date : {date_clean}\n"
+                f"Statut : {unread_clean}\n"
+                f"UID IMAP : {email.get('uid', '?')}\n"
+            )
+            try:
+                await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+            except Exception:
+                pass
+            try:
+                response = await handle_conversation(str(chat_id), contexte_msg)
+            except Exception as e:
+                logger.error("handle_conversation (sélection /mails) a échoué : %s", e, exc_info=True)
+                response = f"Erreur agent : {e}. Tu peux essayer /reset."
+            if not response:
+                response = "(réponse vide)"
+            for i in range(0, len(response), 4000):
+                await update.message.reply_text(response[i:i + 4000])
+            return True
+        # Si le texte n'est pas une sélection numérique, on laisse couler la suite
+        # (mais on garde la liste active pour lui laisser une chance de taper 1-5).
 
     # Étape 2 : confirmation finale OUI/NON après présentation du texte
     if chat_id in _en_attente_confirmation:
@@ -752,6 +816,19 @@ async def cmd_mails(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("")
 
     lines.append("(• = non lu)")
+    lines.append("")
+    lines.append("Tape 1-5 pour ouvrir un email de cette liste.")
+
+    # V1.0.3.2 — Capture la liste pour que la prochaine sélection numérique
+    # cible CES emails, pas un pending DB du passé. TTL 5 min.
+    import time as _time
+    chat_id = update.effective_chat.id
+    _mails_selection[chat_id] = {
+        "emails": emails,
+        "expires_at": _time.time() + _MAILS_SELECTION_TTL_SEC,
+    }
+    logger.info(f"/mails: selection capturée chat_id={chat_id} taille={len(emails)} TTL={_MAILS_SELECTION_TTL_SEC}s")
+
     await update.message.reply_text("\n".join(lines))
 
 
@@ -898,10 +975,33 @@ async def job_rappel_pending(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Force une nouvelle session conversationnelle — utile quand l'agent dérive."""
+    """V1.0.3.2 — Reset élargi : purge la session conversationnelle ET tout
+    état RAM par chat_id qui peut alimenter une suggestion d'envoi.
+
+    Avant V1.0.3.2, /reset ne touchait que ConversationSession et laissait
+    _en_attente_confirmation, _en_attente_custom et _mails_selection actifs.
+    Conséquence Friction 8 : un draft Cofomo ré-armé persistait après /reset
+    et un OUI tapé par réflexe l'envoyait. Plus jamais."""
     chat_id = update.effective_chat.id
     ConversationSession().reset(str(chat_id))
-    await update.message.reply_text("Session réinitialisée.")
+
+    purge_log = []
+    if chat_id in _en_attente_confirmation:
+        del _en_attente_confirmation[chat_id]
+        purge_log.append("confirmation OUI/NON en cours")
+    if chat_id in _en_attente_custom:
+        del _en_attente_custom[chat_id]
+        purge_log.append("mode rédaction personnalisée")
+    if chat_id in _mails_selection:
+        del _mails_selection[chat_id]
+        purge_log.append("liste /mails")
+
+    if purge_log:
+        logger.info(f"/reset chat_id={chat_id} : purgé {', '.join(purge_log)}")
+        suffixe = "\nÉtats purgés : " + ", ".join(purge_log) + "."
+    else:
+        suffixe = ""
+    await update.message.reply_text("Session réinitialisée." + suffixe)
 
 
 async def cmd_forcer_proton(update: Update, context: ContextTypes.DEFAULT_TYPE):
