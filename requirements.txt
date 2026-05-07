@@ -1,0 +1,17 @@
+# Core LangGraph + LLM clients
+anthropic==0.89.0
+openai==2.30.0
+langgraph==1.1.6
+langchain-core==1.2.26
+
+# Telegram bot
+python-telegram-bot==22.7
+
+# Notion integration
+notion-client==3.0.0
+
+# Storage
+aiosqlite==0.22.1
+
+# Browser automation (Airbnb)
+playwright==1.58.0
