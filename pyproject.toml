@@ -1,0 +1,27 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [
+    ".venv",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (imports inutilisés, variables non définies)
+    "W",   # pycodestyle warnings
+    "I",   # isort (ordre des imports)
+    "B",   # flake8-bugbear (bugs courants)
+    "UP",  # pyupgrade (syntaxe moderne)
+]
+ignore = [
+    "E501",  # line too long (géré différemment)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # imports "inutilisés" OK dans __init__.py
+"tests/*" = ["E402"]      # imports en bas de fichier OK dans tests
