@@ -2,10 +2,13 @@
 Agent hebdomadaire — Chantier 13
 Synthèse automatique par projet, envoyée chaque lundi matin.
 """
-from anthropic import Anthropic
 import sys
+
+from anthropic import Anthropic
+
 sys.path.insert(0, "/root")
 from config import ANTHROPIC_API_KEY
+
 from ..profil import PROFIL
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)

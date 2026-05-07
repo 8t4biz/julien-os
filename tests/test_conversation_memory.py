@@ -1,11 +1,7 @@
 """Tests étape 1 — mémoire conversationnelle Telegram."""
-import json
 from datetime import datetime, timedelta
 
-import pytest
-
-from julien_os.memory.conversation import ConversationSession, HARD_CAP_MESSAGES
-
+from julien_os.memory.conversation import HARD_CAP_MESSAGES, ConversationSession
 
 CHAT = "telegram-chat-1"
 

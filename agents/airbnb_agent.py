@@ -1,8 +1,10 @@
 """
 Agent Airbnb — analyse les messages voyageurs et génère 3 options de réponse.
 """
-from anthropic import Anthropic
 import sys
+
+from anthropic import Anthropic
+
 sys.path.insert(0, "/root")
 from config import ANTHROPIC_API_KEY
 
@@ -40,6 +42,10 @@ Un seul mot.
 """
 
 
+# TODO: Vestige de l'ancienne architecture 2-LLM-calls. Soit:
+#   1. Réintégrer dans generer_options() via analyser_et_generer() comme côté Proton (refactor 2026-04-26)
+#   2. Supprimer définitivement si le filtrage par priorité n'est pas souhaité
+# Pour l'instant, conserver la fonction mais elle n'est plus appelée.
 async def analyser_priorite(msg_data: dict) -> str:
     contenu = f"Voyageur: {msg_data.get('guest', '')}\nMessage: {msg_data.get('preview', '')}"
     response = client.messages.create(

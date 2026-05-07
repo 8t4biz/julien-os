@@ -13,8 +13,6 @@ import tempfile
 import time
 import types
 
-import pytest
-
 sys.path.insert(0, "/root")
 
 

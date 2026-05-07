@@ -1,21 +1,20 @@
 """Tests V1.0.3.1 — Fix bugs UID + NON + intent read/reply."""
 import asyncio
 import re
-import sys
 import sqlite3
+import sys
 import tempfile
 
 sys.path.insert(0, "/root")
 
-from julien_os.telegram.formatting import format_email_list
 from julien_os.agents.conversational import (
-    parse_pending_id_from_text,
-    detect_intent,
-    SYSTEM_PROMPT,
     _INSTRUCTIONS_V103_1,
+    SYSTEM_PROMPT,
+    detect_intent,
+    parse_pending_id_from_text,
 )
+from julien_os.telegram.formatting import format_email_list
 from julien_os.tools.email_tools import _format_pending_summary
-
 
 EMOJI_REGEX = re.compile(
     "["

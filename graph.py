@@ -4,14 +4,16 @@ Tous les nœuds sont async. Utiliser graph.ainvoke() depuis le bot Telegram.
 """
 import json
 import logging
-from anthropic import Anthropic
-from langgraph.graph import StateGraph, END
 import sys
+
+from anthropic import Anthropic
+from langgraph.graph import END, StateGraph
+
 sys.path.insert(0, "/root")
 from config import ANTHROPIC_API_KEY
 
-from .state import AgentState
 from .memory.store import recuperer_contexte, sauvegarder
+from .state import AgentState
 
 logger = logging.getLogger(__name__)
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -197,7 +199,7 @@ async def _run_proton_mails(state: AgentState) -> AgentState:
     if not emails:
         return {**state, "resultat": "Boîte vide ou Bridge inaccessible.", "alerte": False}
 
-    lines = [f"5 derniers emails — Proton Mail\n"]
+    lines = ["5 derniers emails — Proton Mail\n"]
     for i, e in enumerate(emails, 1):
         mark = "•" if e.get("unread") else " "
         lines.append(f"{mark} {i}. {e['date']}")
@@ -306,8 +308,9 @@ async def node_run_agent(state: AgentState) -> AgentState:
     if agent_key == "NOTION_SEARCH":
         return await _run_notion_search(state)
 
-    from . import agents
     import inspect
+
+    from . import agents
     agent_map = {
         "CR": agents.cr,
         "EMAIL": agents.email,
@@ -339,6 +342,7 @@ async def node_save_memory(state: AgentState) -> AgentState:
         if state.get("agent") == "CR":
             try:
                 import datetime as _dt
+
                 from .tools.notion_tool import ajouter_cr_ia
 
                 date_str = _dt.date.today().strftime("%d %B %Y")

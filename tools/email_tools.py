@@ -6,7 +6,6 @@ Wrappers async natifs : conçus pour être awaités depuis le handler Telegram a
 NOREPLY_PATTERNS DOIT rester aligné avec /root/julien_os/main.py _executer_action ;
 toute modification du blocage SMTP doit être faite des deux côtés.
 """
-import asyncio
 import json
 import logging
 import sqlite3

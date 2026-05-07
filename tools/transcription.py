@@ -1,6 +1,7 @@
-import os
-from openai import OpenAI
 import sys
+
+from openai import OpenAI
+
 sys.path.insert(0, "/root")
 from config import OPENAI_API_KEY
 

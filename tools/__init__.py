@@ -1,5 +1,5 @@
 """Dispatcher des tools async exposés au LLM conversationnel."""
-from julien_os.tools.email_tools import EMAIL_TOOLS, EMAIL_HANDLERS
+from julien_os.tools.email_tools import EMAIL_HANDLERS, EMAIL_TOOLS
 
 ALL_TOOLS = list(EMAIL_TOOLS)
 ALL_HANDLERS = dict(EMAIL_HANDLERS)

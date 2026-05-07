@@ -3,9 +3,10 @@ Outil Notion — BDD_Notes_Inbox + Tableau de bord iA
 Nécessite : pip install notion-client
 Credentials : /root/secrets.json → "notion_token"
 """
-import json
 import datetime
+import json
 import logging
+
 from notion_client import AsyncClient
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ async def lire_page(page_id: str) -> dict:
 
     # Titre
     title = ""
-    for key, val in page.get("properties", {}).items():
+    for _key, val in page.get("properties", {}).items():
         if val.get("type") == "title":
             title = "".join(t.get("plain_text", "") for t in val.get("title", []))
             break

@@ -2,11 +2,10 @@
 Playwright base — gestionnaire de navigateur partagé avec sessions persistantes.
 Un seul browser tourne en background, les pages sont ouvertes/fermées à la demande.
 """
-import asyncio
 import json
-import os
 from pathlib import Path
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 SESSIONS_DIR = Path("/root/julien_os/.sessions")
 SESSIONS_DIR.mkdir(exist_ok=True)

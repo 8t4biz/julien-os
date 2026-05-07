@@ -12,9 +12,9 @@ Contraintes V1.0.3 :
 - Guillemets français « »
 - Sortie envoyée à Telegram en parse_mode=None
 """
-from datetime import datetime
 import re
 from collections import Counter
+from datetime import datetime
 
 PREVIEW_MAX = 80
 SUBJECT_MAX = 60

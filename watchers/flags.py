@@ -2,8 +2,8 @@
 Flags persistants pour les watchers — stockés en SQLite.
 Survit aux redémarrages du bot. Partagé entre airbnb_watcher et protonmail_watcher.
 """
-import sqlite3
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 

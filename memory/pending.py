@@ -2,9 +2,10 @@
 Pending actions — table SQLite pour le flux OUI/NON de validation.
 Un pending action = alerte envoyée à Julien + action à exécuter après confirmation.
 """
-import aiosqlite
 import json
 from datetime import datetime, timedelta
+
+import aiosqlite
 
 DB_PATH = "/root/memoire.db"
 

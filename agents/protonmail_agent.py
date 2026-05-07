@@ -5,9 +5,10 @@ Airbnb : prompt spécialisé avec contexte hôte réel (style, propriétés, pol
 """
 import json
 import logging
-import re
-from anthropic import Anthropic
 import sys
+
+from anthropic import Anthropic
+
 sys.path.insert(0, "/root")
 from config import ANTHROPIC_API_KEY
 

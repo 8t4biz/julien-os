@@ -6,7 +6,6 @@ sys.path.insert(0, "/root")
 
 from julien_os.telegram.formatting import format_email_list
 
-
 # Plages Unicode emoji typiquement utilisées (✅ ❌ ⏰ 📧 etc. ainsi que tous les emojis modernes)
 EMOJI_REGEX = re.compile(
     "["

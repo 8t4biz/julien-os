@@ -3,8 +3,8 @@ Airbnb Watcher — polling toutes les 60 minutes.
 Détecte les nouveaux messages voyageurs, envoie une alerte Telegram.
 """
 import asyncio
-import logging
 import json
+import logging
 
 from .flags import alerte_deja_envoyee, marquer_alerte, reset_alerte
 
@@ -26,9 +26,9 @@ async def charger_credentials() -> dict | None:
 
 
 async def poll_once(bot, chat_id: int) -> int:
-    from ..tools.airbnb_scraper import AirbnbClient
-    from ..agents.airbnb_agent import analyser_priorite, generer_options, formater_alerte_telegram
+    from ..agents.airbnb_agent import formater_alerte_telegram, generer_options
     from ..memory.pending import creer_pending, item_deja_traite
+    from ..tools.airbnb_scraper import AirbnbClient
 
     creds = await charger_credentials()
     if not creds:
@@ -68,8 +68,6 @@ async def poll_once(bot, chat_id: int) -> int:
         msg_id = msg_data["id"]
         if await item_deja_traite("airbnb", msg_id):
             continue
-
-        priorite = await analyser_priorite(msg_data)
 
         # Charge la conversation complète
         if msg_data.get("href"):

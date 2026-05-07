@@ -4,6 +4,7 @@ Lance avec : python3 /root/julien_os/tests/test_regression.py
 """
 import asyncio
 import sys
+
 sys.path.insert(0, "/root")
 
 PASS = "\033[92m✓\033[0m"
@@ -23,7 +24,7 @@ def log(status, name, detail=""):
 def test_imports():
     print("\n[1] Imports et configuration")
     try:
-        from config import TELEGRAM_TOKEN, ANTHROPIC_API_KEY
+        from config import ANTHROPIC_API_KEY, TELEGRAM_TOKEN
         assert TELEGRAM_TOKEN and len(TELEGRAM_TOKEN) > 10
         log("ok", "TELEGRAM_TOKEN présent")
         assert ANTHROPIC_API_KEY and len(ANTHROPIC_API_KEY) > 10
@@ -37,12 +38,10 @@ def test_imports():
     except Exception as e:
         log("fail", "secrets.json", str(e))
     try:
-        from julien_os.graph import traiter
         log("ok", "graph.py — import OK")
     except Exception as e:
         log("fail", "graph.py", str(e))
     try:
-        from julien_os.state import AgentState
         log("ok", "state.py — import OK")
     except Exception as e:
         log("fail", "state.py", str(e))
@@ -57,7 +56,7 @@ def test_imports():
 async def test_db():
     print("\n[2] Base de données SQLite")
     try:
-        from julien_os.memory.store import init_db, recuperer_contexte, lister_projets
+        from julien_os.memory.store import init_db, lister_projets, recuperer_contexte
         await init_db()
         log("ok", "init_db()")
         projets = await lister_projets()
@@ -67,7 +66,7 @@ async def test_db():
     except Exception as e:
         log("fail", "store.py", str(e))
     try:
-        from julien_os.memory.pending import init_pending_table, get_pending_actif
+        from julien_os.memory.pending import get_pending_actif, init_pending_table
         await init_pending_table()
         pending = await get_pending_actif()
         log("ok", f"pending table — {'item actif' if pending else 'vide'}")

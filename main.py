@@ -3,36 +3,51 @@ Julien OS — Bot Telegram
 Interface principale — délègue tout traitement au graphe LangGraph.
 Intègre le système de validation OUI/NON pour les actions Proton Mail et Airbnb.
 """
-import os
 import asyncio
 import logging
-from datetime import time
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import os
 import sys
+from datetime import time
+
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+
+from telegram import Update
+
 sys.path.insert(0, "/root")
 from config import TELEGRAM_TOKEN
 
-from .graph import traiter
-from .memory.store import (
-    init_db, recuperer_contexte, lister_projets, normaliser_projet,
-    ajouter_alerte, supprimer_alerte, lister_alertes,
-    sauvegarder_chat_id, recuperer_chat_id,
-)
-from .memory.pending import (
-    init_pending_table, get_pending_actif,
-    confirmer_pending, marquer_envoye, ignorer_pending, annuler_redaction,
-    get_tous_pending_actifs, get_pending_a_rappeler, marquer_rappel_envoye,
-    get_pending_confirme_orphelin,
-)
-from .tools.transcription import transcrire_audio
 from .agents.consolidation import consolider
-from .agents.hebdo import generer_tableau_bord
-from .telegram_format import envoyer_html
 
 # V1 Niveau 2 — agent conversationnel pour le texte libre
 from .agents.conversational import handle_conversation
+from .agents.hebdo import generer_tableau_bord
+from .graph import traiter
 from .memory.conversation import ConversationSession
+from .memory.pending import (
+    annuler_redaction,
+    confirmer_pending,
+    get_pending_a_rappeler,
+    get_pending_actif,
+    get_pending_confirme_orphelin,
+    get_tous_pending_actifs,
+    ignorer_pending,
+    init_pending_table,
+    marquer_envoye,
+    marquer_rappel_envoye,
+)
+from .memory.store import (
+    ajouter_alerte,
+    init_db,
+    lister_alertes,
+    lister_projets,
+    normaliser_projet,
+    recuperer_chat_id,
+    recuperer_contexte,
+    sauvegarder_chat_id,
+    supprimer_alerte,
+)
+from .telegram_format import envoyer_html
+from .tools.transcription import transcrire_audio
 
 logging.basicConfig(level=logging.WARNING)
 logging.getLogger('julien_os').setLevel(logging.INFO)
@@ -609,9 +624,10 @@ async def cmd_alerte(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from .memory.store import recuperer_tout_historique
-    from datetime import datetime, timedelta
     from collections import Counter
+    from datetime import datetime
+
+    from .memory.store import recuperer_tout_historique
     projet_raw = " ".join(context.args) if context.args else ""
     if not projet_raw:
         rows = await lister_projets()
@@ -677,8 +693,8 @@ async def cmd_login_proton(update, context):
             if rep.strip().upper() == "ANNULER":
                 raise asyncio.CancelledError()
             return rep.strip()
-        except asyncio.TimeoutError:
-            raise asyncio.TimeoutError("Delai de 3 min depasse — login annule")
+        except TimeoutError:
+            raise TimeoutError("Delai de 3 min depasse — login annule") from None
 
     async def status_fn(msg, screenshot=None):
         await context.bot.send_message(chat_id=chat_id, text=msg)
@@ -704,7 +720,7 @@ async def cmd_login_proton(update, context):
             )
         except asyncio.CancelledError:
             await context.bot.send_message(chat_id=chat_id, text="Login annule.")
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             await context.bot.send_message(chat_id=chat_id, text=str(e))
         except Exception as e:
             await context.bot.send_message(chat_id=chat_id, text=f"Erreur login : {e}")
@@ -742,8 +758,8 @@ async def cmd_login_airbnb(update, context):
             if rep.strip().upper() == "ANNULER":
                 raise asyncio.CancelledError()
             return rep.strip()
-        except asyncio.TimeoutError:
-            raise asyncio.TimeoutError("Delai de 3 min depasse")
+        except TimeoutError:
+            raise TimeoutError("Delai de 3 min depasse") from None
 
     async def status_fn(msg, screenshot=None):
         await context.bot.send_message(chat_id=chat_id, text=msg)
@@ -766,7 +782,7 @@ async def cmd_login_airbnb(update, context):
             )
         except asyncio.CancelledError:
             await context.bot.send_message(chat_id=chat_id, text="Login annule.")
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             await context.bot.send_message(chat_id=chat_id, text=str(e))
         except Exception as e:
             await context.bot.send_message(chat_id=chat_id, text=f"Erreur login Airbnb : {e}")
@@ -1007,8 +1023,8 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_forcer_proton(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text("Scan Proton Mail en cours...")
-    from .watchers.protonmail_watcher import poll_once
     from .telegram.formatting import format_email_list
+    from .watchers.protonmail_watcher import poll_once
     _, scan_data = await poll_once(context.bot, chat_id)
     if not scan_data.get("bridge_ok"):
         msg = "Bridge IMAP — connexion échouée."
@@ -1036,8 +1052,10 @@ async def cmd_forcer_airbnb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_migrate_v102(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """V1.0.2 — Migration rétroactive des pendings Proton vers les dossiers cibles. Idempotent."""
-    import aiosqlite
     import json as _json
+
+    import aiosqlite
+
     from .tools import imap_actions
 
     await update.message.reply_text("🔄 Migration V1.0.2 en cours…")
@@ -1105,14 +1123,13 @@ async def cmd_migrate_v102(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_synthese(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """V1.0.3 — Récap consolidé : pendings actifs + dernier scan + état système. Aucun appel LLM."""
-    import asyncio as _asyncio
-    import json as _json
-    import subprocess as _sp
     import re as _re
-    from datetime import datetime as _dt, timedelta as _td
-    from .telegram.formatting import format_email_list, age_label
+    import subprocess as _sp
+    from datetime import datetime as _dt
+
     from .memory.pending import get_tous_pending_actifs
     from .memory.scan_state import get_dernier_scan
+    from .telegram.formatting import age_label, format_email_list
 
     pendings_raw = await get_tous_pending_actifs()
     pendings = []
@@ -1145,7 +1162,6 @@ async def cmd_synthese(update: Update, context: ContextTypes.DEFAULT_TYPE):
     imap_errors_24h = 0
     try:
         log_path = "/root/julien_os.log"
-        cutoff = _dt.now() - _td(hours=24)
         # On compte les occurrences brutes de [IMAP_ACTION_FAIL] dans le fichier ;
         # le timestamp précis n'est pas dans la ligne mais le bot vit < 24h en pratique.
         with open(log_path) as f:
@@ -1251,6 +1267,8 @@ async def post_init(application):
         name="rappel_pending"
     )
 
+    chat_id = await recuperer_chat_id()
+
     # Recuperer les confirmations orphelines (perdues au dernier restart)
     try:
         orphelin = await get_pending_confirme_orphelin()
@@ -1280,7 +1298,6 @@ async def post_init(application):
         logger.warning("Recovery orphelin failed : " + str(e))
 
     # Notification de démarrage (inclut restart après crash)
-    chat_id = await recuperer_chat_id()
     if chat_id:
         import datetime as _dt
         now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")

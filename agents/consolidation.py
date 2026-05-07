@@ -2,10 +2,13 @@
 Agent consolidation — Chantier 10
 Résumé consolidé de tout l'historique d'un projet sur 90 jours.
 """
-from anthropic import Anthropic
 import sys
+
+from anthropic import Anthropic
+
 sys.path.insert(0, "/root")
 from config import ANTHROPIC_API_KEY
+
 from ..profil import PROFIL
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)

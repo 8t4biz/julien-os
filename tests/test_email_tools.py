@@ -1,12 +1,11 @@
 """Tests étape 2.5 — wrappers email Anthropic en async natif."""
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
-from julien_os.tools import execute_tool, ALL_TOOLS, ALL_HANDLERS  # noqa: F401
+from julien_os.tools import ALL_HANDLERS, ALL_TOOLS, execute_tool  # noqa: F401
 from julien_os.tools.email_tools import (
-    execute_read_emails,
     execute_get_email_details,
+    execute_read_emails,
     execute_send_email_reply,
 )
 

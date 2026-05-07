@@ -9,15 +9,14 @@ Proton Bridge écoute sur :
 Le bridge password est différent du mot de passe ProtonMail.
 Il est généré par Bridge et stocké dans secrets.json["protonmail"]["bridge_password"].
 """
-import imaplib
-import smtplib
 import email
-import email.mime.text
-import email.mime.multipart
 import email.header
+import email.mime.multipart
+import email.mime.text
+import imaplib
 import logging
+import smtplib
 import ssl
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -293,8 +292,8 @@ class ProtonMailClient:
     async def get_latest_emails(self, limit: int = 5) -> list[dict]:
         """Retourne les N emails les plus récents triés par INTERNALDATE décroissant."""
         try:
-            from email.utils import parsedate_to_datetime
             import re as _re
+            from email.utils import parsedate_to_datetime
 
             conn = self._connect_imap()
             conn.select("INBOX")

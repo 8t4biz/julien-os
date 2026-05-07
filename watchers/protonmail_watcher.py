@@ -2,8 +2,8 @@
 Proton Mail Watcher — batch 2x/jour (11h45 et 17h EDT).
 Flux complet : lecture → analyse → options → Telegram → en attente réponse Julien.
 """
-import logging
 import json
+import logging
 from datetime import datetime
 
 from .flags import alerte_deja_envoyee, marquer_alerte, reset_alerte
@@ -37,10 +37,15 @@ async def poll_once(bot, chat_id: int) -> tuple[int, dict]:
         "alertes_envoyees": int,
     }
     """
-    from ..tools.protonmail import ProtonMailClient
     from ..agents.protonmail_agent import analyser_et_generer, formater_alerte_telegram
-    from ..memory.pending import creer_pending, item_deja_traite, get_pending_by_item_id, update_pending_item_data
+    from ..memory.pending import (
+        creer_pending,
+        get_pending_by_item_id,
+        item_deja_traite,
+        update_pending_item_data,
+    )
     from ..memory.scan_state import enregistrer_scan
+    from ..tools.protonmail import ProtonMailClient
 
     scan_at = datetime.now().isoformat()
     scan_data = {

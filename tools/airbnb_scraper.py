@@ -6,13 +6,17 @@ et survit aux redémarrages (cookies + localStorage + session).
 Le navigateur est ouvert uniquement pendant le scan puis fermé immédiatement
 pour libérer la RAM (~400 MB par instance Chromium).
 """
-import asyncio
 import logging
-from pathlib import Path
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Callable, Awaitable, Optional
+from pathlib import Path
+
 from playwright.async_api import (
-    async_playwright, BrowserContext, Page,
+    BrowserContext,
+    Page,
+    async_playwright,
+)
+from playwright.async_api import (
     TimeoutError as PWTimeout,
 )
 
@@ -30,7 +34,7 @@ MESSAGES_URL = f"{AIRBNB_URL}/hosting/messages"
 PROFILE_DIR = Path("/root/julien_os/.chrome_profile/airbnb")
 
 InputFn = Callable[[str], Awaitable[str]]
-StatusFn = Callable[[str, Optional[bytes]], Awaitable[None]]
+StatusFn = Callable[[str, bytes | None], Awaitable[None]]
 
 _LAUNCH_KWARGS = dict(
     headless=True,
@@ -157,8 +161,8 @@ class AirbnbClient:
             return False
 
     async def _faire_login(self, page: Page,
-                           input_fn: Optional[InputFn],
-                           status_fn: Optional[StatusFn]) -> bool:
+                           input_fn: InputFn | None,
+                           status_fn: StatusFn | None) -> bool:
 
         async def s(msg: str, screenshot: bool = False):
             if status_fn:

@@ -18,7 +18,8 @@ import re
 from anthropic import AsyncAnthropic
 from config import ANTHROPIC_API_KEY
 
-from ..memory.conversation import ConversationSession, DB_PATH as DEFAULT_DB_PATH
+from ..memory.conversation import DB_PATH as DEFAULT_DB_PATH
+from ..memory.conversation import ConversationSession
 from ..memory.llm_logging import init_llm_logging_schema, log_llm_call
 from ..tools import ALL_TOOLS, execute_tool
 

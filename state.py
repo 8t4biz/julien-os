@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional, Literal, List
+from typing import Literal, TypedDict
 
 AgentType = Literal[
     "CR", "EMAIL", "SHEPHERD", "MEMOIRE", "PREP", "DIRECT",
@@ -10,8 +10,8 @@ AgentType = Literal[
 class AgentState(TypedDict, total=False):
     message: str
     projet: str
-    agent: Optional[AgentType]
-    contexte: Optional[str]
-    resultat: Optional[str]
-    alerte: Optional[bool]
-    _alertes: List[str]
+    agent: AgentType | None
+    contexte: str | None
+    resultat: str | None
+    alerte: bool | None
+    _alertes: list[str]

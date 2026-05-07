@@ -1,6 +1,7 @@
 """V1.0.3 — Persistance du dernier scan watcher pour /synthese."""
-import aiosqlite
 from datetime import datetime
+
+import aiosqlite
 
 DB_PATH = "/root/memoire.db"
 
