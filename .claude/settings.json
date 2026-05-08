@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_FILE_PATHS\" | grep -qE '\\.py$'; then ruff check --fix $CLAUDE_FILE_PATHS 2>/dev/null; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
