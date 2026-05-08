@@ -2,9 +2,10 @@
 Proton Mail Watcher — batch 2x/jour (11h45 et 17h EDT).
 Flux complet : lecture → analyse → options → Telegram → en attente réponse Julien.
 """
-import json
 import logging
 from datetime import datetime
+
+from julien_os.config import PROTONMAIL_BRIDGE_PASSWORD, PROTONMAIL_EMAIL
 
 from .flags import alerte_deja_envoyee, marquer_alerte, reset_alerte
 
@@ -13,16 +14,8 @@ logger = logging.getLogger(__name__)
 _FLAG = "proton_session"
 
 
-async def charger_credentials() -> dict | None:
-    try:
-        with open("/root/secrets.json") as f:
-            secrets = json.load(f)
-        pm = secrets.get("protonmail", {})
-        if not pm.get("email") or not pm.get("bridge_password"):
-            return None
-        return pm
-    except FileNotFoundError:
-        return None
+async def charger_credentials() -> dict:
+    return {"email": PROTONMAIL_EMAIL, "bridge_password": PROTONMAIL_BRIDGE_PASSWORD}
 
 
 async def poll_once(bot, chat_id: int) -> tuple[int, dict]:
@@ -57,10 +50,6 @@ async def poll_once(bot, chat_id: int) -> tuple[int, dict]:
     }
 
     creds = await charger_credentials()
-    if not creds:
-        scan_data["error"] = "bridge_password manquant dans secrets.json"
-        logger.warning("ProtonMail: " + scan_data["error"])
-        return 0, scan_data
 
     client = ProtonMailClient(
         email_addr=creds["email"],

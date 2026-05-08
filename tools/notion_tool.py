@@ -1,12 +1,12 @@
 """
 Outil Notion — BDD_Notes_Inbox + Tableau de bord iA
 Nécessite : pip install notion-client
-Credentials : /root/secrets.json → "notion_token"
+Credentials : variable d'environnement NOTION_TOKEN (voir julien_os.config).
 """
 import datetime
-import json
 import logging
 
+from julien_os.config import NOTION_TOKEN
 from notion_client import AsyncClient
 
 logger = logging.getLogger(__name__)
@@ -21,12 +21,7 @@ JOURNAL_AFTER_BLOCK_ID = "f882c695-f6d3-4964-b831-9bdae2921301"
 
 
 def _get_token() -> str:
-    with open("/root/secrets.json") as f:
-        s = json.load(f)
-    token = s.get("notion_token", "")
-    if not token:
-        raise ValueError("notion_token manquant dans /root/secrets.json")
-    return token
+    return NOTION_TOKEN
 
 
 async def creer_note(texte: str, titre: str = None, projet: str = None) -> str:

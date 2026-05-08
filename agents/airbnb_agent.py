@@ -6,7 +6,7 @@ import sys
 from anthropic import Anthropic
 
 sys.path.insert(0, "/root")
-from config import ANTHROPIC_API_KEY
+from julien_os.config import ANTHROPIC_API_KEY
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 

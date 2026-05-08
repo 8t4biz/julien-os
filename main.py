@@ -14,7 +14,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Messa
 from telegram import Update
 
 sys.path.insert(0, "/root")
-from config import TELEGRAM_TOKEN
+from julien_os.config import TELEGRAM_TOKEN
 
 from .agents.consolidation import consolider
 
@@ -298,7 +298,7 @@ async def handle_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def _generer_reponse_custom(instruction: str, item_data: dict, source: str) -> str:
     """Génère une réponse custom à partir de l'instruction de Julien."""
     from anthropic import Anthropic
-    from config import ANTHROPIC_API_KEY
+    from julien_os.config import ANTHROPIC_API_KEY
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
     contexte = (
@@ -327,7 +327,6 @@ async def _executer_action(state: dict, bot=None, chat_id: int = None) -> bool:
     - protonmail + email Airbnb → pas de SMTP (no-reply), affiche texte + lien
     - airbnb → envoi message via Playwright
     """
-    import json as _json
     source = state["source"]
     item_data = state["item_data"]
     texte = state["texte"]
@@ -368,18 +367,12 @@ async def _executer_action(state: dict, bot=None, chat_id: int = None) -> bool:
             return True
 
         # Email normal → SMTP Proton Bridge
-        try:
-            with open("/root/secrets.json") as f:
-                secrets = _json.load(f)
-            creds = secrets.get("protonmail", {})
-        except Exception:
-            logger.error("_executer_action: impossible de lire secrets.json")
-            return False
+        from julien_os.config import PROTONMAIL_BRIDGE_PASSWORD, PROTONMAIL_EMAIL
 
         from .tools.protonmail import ProtonMailClient
         client = ProtonMailClient(
-            email_addr=creds["email"],
-            bridge_password=creds.get("bridge_password", ""),
+            email_addr=PROTONMAIL_EMAIL,
+            bridge_password=PROTONMAIL_BRIDGE_PASSWORD,
         )
         folder = item_data.get("folder") or "INBOX"
         ok = await client.reply_to_email(
@@ -406,14 +399,10 @@ async def _executer_action(state: dict, bot=None, chat_id: int = None) -> bool:
         return ok
 
     elif source == "airbnb":
-        try:
-            with open("/root/secrets.json") as f:
-                secrets = _json.load(f)
-            creds = secrets.get("airbnb", {})
-        except Exception:
-            return False
+        from julien_os.config import AIRBNB_EMAIL, AIRBNB_PASSWORD
+
         from .tools.airbnb_scraper import AirbnbClient
-        client = AirbnbClient(email=creds["email"], password=creds["password"])
+        client = AirbnbClient(email=AIRBNB_EMAIL, password=AIRBNB_PASSWORD)
         await client.login()
         return await client.send_message(item_data.get("href", ""), texte)
 
@@ -670,13 +659,8 @@ async def cmd_login_proton(update, context):
     if chat_id in _login_sessions:
         await update.message.reply_text("Un login est deja en cours. Reponds aux questions ou tape ANNULER.")
         return
-    import json as _j
-    try:
-        creds = _j.load(open("/root/secrets.json")).get("protonmail", {})
-        assert creds.get("email") and creds.get("password")
-    except Exception:
-        await update.message.reply_text("Credentials manquants dans /root/secrets.json")
-        return
+
+    from julien_os.config import PROTONMAIL_BRIDGE_PASSWORD, PROTONMAIL_EMAIL
 
     await update.message.reply_text(
         "Connexion Proton Mail en cours...\n"
@@ -709,8 +693,8 @@ async def cmd_login_proton(update, context):
         try:
             from .tools.protonmail import ProtonMailClient
             c = ProtonMailClient(
-                email_addr=creds["email"],
-                bridge_password=creds.get("bridge_password", ""),
+                email_addr=PROTONMAIL_EMAIL,
+                bridge_password=PROTONMAIL_BRIDGE_PASSWORD,
             )
             ok = await c.interactive_login(input_fn=input_fn, status_fn=status_fn)
             await context.bot.send_message(
@@ -736,13 +720,9 @@ async def cmd_login_airbnb(update, context):
     if chat_id in _login_sessions:
         await update.message.reply_text("Un login est deja en cours. Reponds ou tape ANNULER.")
         return
-    import json as _j
-    try:
-        creds = _j.load(open("/root/secrets.json")).get("airbnb", {})
-        assert creds.get("email") and creds.get("password")
-    except Exception:
-        await update.message.reply_text("Credentials Airbnb manquants dans /root/secrets.json")
-        return
+
+    from julien_os.config import AIRBNB_EMAIL, AIRBNB_PASSWORD
+
     await update.message.reply_text(
         "Connexion Airbnb en cours...\n"
         "Si Airbnb envoie un code par email, entre-le ici.\n"
@@ -773,7 +753,7 @@ async def cmd_login_airbnb(update, context):
     async def _run():
         try:
             from .tools.airbnb_scraper import AirbnbClient
-            c = AirbnbClient(email=creds["email"], password=creds["password"])
+            c = AirbnbClient(email=AIRBNB_EMAIL, password=AIRBNB_PASSWORD)
             ok = await c.interactive_login(input_fn=input_fn, status_fn=status_fn)
             await context.bot.send_message(
                 chat_id=chat_id,
@@ -795,25 +775,12 @@ async def cmd_login_airbnb(update, context):
 
 async def cmd_mails(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Affiche les 5 derniers emails Proton Mail via IMAP Bridge."""
-    import json as _json
-    try:
-        with open("/root/secrets.json") as f:
-            s = _json.load(f)
-        pm = s.get("protonmail", {})
-        bridge_password = pm.get("bridge_password", "")
-        if not bridge_password:
-            await update.message.reply_text(
-                "Bridge Proton Mail non configuré.\nLance: python3 /root/bridge_setup.py sur le VPS."
-            )
-            return
-    except Exception:
-        await update.message.reply_text("Erreur lecture secrets.json")
-        return
+    from julien_os.config import PROTONMAIL_BRIDGE_PASSWORD, PROTONMAIL_EMAIL
 
     await update.message.reply_text("Lecture IMAP en cours...")
     try:
         from .tools.protonmail import ProtonMailClient
-        client = ProtonMailClient(email_addr=pm["email"], bridge_password=bridge_password)
+        client = ProtonMailClient(email_addr=PROTONMAIL_EMAIL, bridge_password=PROTONMAIL_BRIDGE_PASSWORD)
         emails = await client.get_latest_emails(5)
     except Exception as e:
         await update.message.reply_text(f"Erreur IMAP : {e}")
@@ -850,20 +817,6 @@ async def cmd_mails(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_noter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Crée une note dans BDD_Notes_Inbox Notion. Usage : /noter [texte]"""
-    import json as _json
-    try:
-        with open("/root/secrets.json") as f:
-            s = _json.load(f)
-        if not s.get("notion_token"):
-            await update.message.reply_text(
-                "notion_token manquant dans /root/secrets.json.\n"
-                "Ajoute-le manuellement : nano /root/secrets.json"
-            )
-            return
-    except Exception:
-        await update.message.reply_text("Erreur lecture secrets.json")
-        return
-
     texte = " ".join(context.args) if context.args else ""
     if not texte:
         await update.message.reply_text("Usage : /noter [texte de la note]")
@@ -879,22 +832,11 @@ async def cmd_noter(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_surveillance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import json
-    try:
-        with open("/root/secrets.json") as f:
-            secrets = json.load(f)
-        pm = secrets.get("protonmail", {})
-        ab = secrets.get("airbnb", {})
-        proton_ok = bool(pm.get("email") and pm.get("password"))
-        airbnb_ok = bool(ab.get("email") and ab.get("password"))
-    except Exception:
-        proton_ok = airbnb_ok = False
-
     msg = (
         "Statut de la surveillance\n\n"
-        f"\U0001f4e7 Proton Mail : {'\u2705 configuré' if proton_ok else '\u274c credentials manquants'}\n"
+        "\U0001f4e7 Proton Mail : ✅ configuré\n"
         "   Watcher : ✅ actif — 11h45 et 17h EDT\n\n"
-        f"\U0001f3e0 Airbnb : {'\u2705 configuré' if airbnb_ok else '\u274c credentials manquants'}\n"
+        "\U0001f3e0 Airbnb : ✅ configuré\n"
         "   Watcher : ✅ actif — 11h45 et 17h EDT\n\n"
         "Commandes manuelles :\n"
         "/forcer_proton — scan Proton maintenant\n"

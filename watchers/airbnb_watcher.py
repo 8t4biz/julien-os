@@ -3,8 +3,9 @@ Airbnb Watcher — polling toutes les 60 minutes.
 Détecte les nouveaux messages voyageurs, envoie une alerte Telegram.
 """
 import asyncio
-import json
 import logging
+
+from julien_os.config import AIRBNB_EMAIL, AIRBNB_PASSWORD
 
 from .flags import alerte_deja_envoyee, marquer_alerte, reset_alerte
 
@@ -13,16 +14,8 @@ logger = logging.getLogger(__name__)
 _FLAG = "airbnb_session"
 
 
-async def charger_credentials() -> dict | None:
-    try:
-        with open("/root/secrets.json") as f:
-            secrets = json.load(f)
-        ab = secrets.get("airbnb", {})
-        if not ab.get("email") or not ab.get("password"):
-            return None
-        return ab
-    except FileNotFoundError:
-        return None
+async def charger_credentials() -> dict:
+    return {"email": AIRBNB_EMAIL, "password": AIRBNB_PASSWORD}
 
 
 async def poll_once(bot, chat_id: int) -> int:
@@ -31,8 +24,6 @@ async def poll_once(bot, chat_id: int) -> int:
     from ..tools.airbnb_scraper import AirbnbClient
 
     creds = await charger_credentials()
-    if not creds:
-        return 0
 
     client = AirbnbClient(email=creds["email"], password=creds["password"])
 

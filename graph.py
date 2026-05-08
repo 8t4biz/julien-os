@@ -10,7 +10,7 @@ from anthropic import Anthropic
 from langgraph.graph import END, StateGraph
 
 sys.path.insert(0, "/root")
-from config import ANTHROPIC_API_KEY
+from julien_os.config import ANTHROPIC_API_KEY
 
 from .memory.store import recuperer_contexte, sauvegarder
 from .state import AgentState
@@ -139,18 +139,11 @@ async def node_load_context(state: AgentState) -> AgentState:
 
 async def _run_airbnb_scan(state: AgentState) -> AgentState:
     """Scan Airbnb à la demande — messages non lus."""
-    try:
-        with open("/root/secrets.json") as f:
-            s = json.load(f)
-        creds = s.get("airbnb", {})
-        if not creds.get("email") or not creds.get("password"):
-            return {**state, "resultat": "Credentials Airbnb manquants dans /root/secrets.json.", "alerte": False}
-    except Exception as e:
-        return {**state, "resultat": f"Erreur lecture secrets.json : {e}", "alerte": False}
+    from julien_os.config import AIRBNB_EMAIL, AIRBNB_PASSWORD
 
     try:
         from .tools.airbnb_scraper import AirbnbClient
-        client_ab = AirbnbClient(email=creds["email"], password=creds["password"])
+        client_ab = AirbnbClient(email=AIRBNB_EMAIL, password=AIRBNB_PASSWORD)
         messages = await client_ab.get_unread_messages(limit=5)
     except Exception as e:
         logger.error(f"AIRBNB_SCAN error: {e}")
@@ -171,26 +164,11 @@ async def _run_airbnb_scan(state: AgentState) -> AgentState:
 
 async def _run_proton_mails(state: AgentState) -> AgentState:
     """Lecture IMAP Proton Bridge à la demande."""
-    try:
-        with open("/root/secrets.json") as f:
-            s = json.load(f)
-        pm = s.get("protonmail", {})
-        bridge_password = pm.get("bridge_password", "")
-        if not bridge_password:
-            return {
-                **state,
-                "resultat": (
-                    "Bridge Proton Mail non configuré.\n"
-                    "Lance : python3 /root/bridge_setup.py sur le VPS."
-                ),
-                "alerte": False,
-            }
-    except Exception as e:
-        return {**state, "resultat": f"Erreur lecture secrets.json : {e}", "alerte": False}
+    from julien_os.config import PROTONMAIL_BRIDGE_PASSWORD, PROTONMAIL_EMAIL
 
     try:
         from .tools.protonmail import ProtonMailClient
-        client_pm = ProtonMailClient(email_addr=pm["email"], bridge_password=bridge_password)
+        client_pm = ProtonMailClient(email_addr=PROTONMAIL_EMAIL, bridge_password=PROTONMAIL_BRIDGE_PASSWORD)
         emails = await client_pm.get_latest_emails(5)
     except Exception as e:
         logger.error(f"PROTON_MAILS error: {e}")

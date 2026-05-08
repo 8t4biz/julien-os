@@ -7,7 +7,8 @@ Proton Bridge écoute sur :
   SMTP : 127.0.0.1:1025  (STARTTLS)
 
 Le bridge password est différent du mot de passe ProtonMail.
-Il est généré par Bridge et stocké dans secrets.json["protonmail"]["bridge_password"].
+Il est généré par Bridge et stocké dans la variable d'environnement
+PROTONMAIL_BRIDGE_PASSWORD (voir julien_os.config).
 """
 import email
 import email.header

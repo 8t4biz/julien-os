@@ -3,7 +3,7 @@ import sys
 from openai import OpenAI
 
 sys.path.insert(0, "/root")
-from config import OPENAI_API_KEY
+from julien_os.config import OPENAI_API_KEY
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 

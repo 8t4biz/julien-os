@@ -16,7 +16,7 @@ import logging
 import re
 
 from anthropic import AsyncAnthropic
-from config import ANTHROPIC_API_KEY
+from julien_os.config import ANTHROPIC_API_KEY
 
 from ..memory.conversation import DB_PATH as DEFAULT_DB_PATH
 from ..memory.conversation import ConversationSession

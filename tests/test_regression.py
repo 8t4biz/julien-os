@@ -24,19 +24,26 @@ def log(status, name, detail=""):
 def test_imports():
     print("\n[1] Imports et configuration")
     try:
-        from config import ANTHROPIC_API_KEY, TELEGRAM_TOKEN
+        from julien_os.config import (
+            AIRBNB_EMAIL,
+            ANTHROPIC_API_KEY,
+            NOTION_TOKEN,
+            PROTONMAIL_BRIDGE_PASSWORD,
+            PROTONMAIL_EMAIL,
+            TELEGRAM_TOKEN,
+        )
         assert TELEGRAM_TOKEN and len(TELEGRAM_TOKEN) > 10
         log("ok", "TELEGRAM_TOKEN présent")
         assert ANTHROPIC_API_KEY and len(ANTHROPIC_API_KEY) > 10
         log("ok", "ANTHROPIC_API_KEY présent")
+        assert PROTONMAIL_EMAIL and PROTONMAIL_BRIDGE_PASSWORD
+        log("ok", "Proton Mail credentials présents")
+        assert AIRBNB_EMAIL
+        log("ok", "Airbnb credentials présents")
+        assert NOTION_TOKEN
+        log("ok", "NOTION_TOKEN présent")
     except Exception as e:
-        log("fail", "config.py", str(e))
-    try:
-        import json
-        s = json.load(open("/root/secrets.json"))
-        log("ok", f"secrets.json — clés: {list(s.keys())}")
-    except Exception as e:
-        log("fail", "secrets.json", str(e))
+        log("fail", "julien_os.config", str(e))
     try:
         log("ok", "graph.py — import OK")
     except Exception as e:

@@ -150,16 +150,12 @@ async def _send_smtp_reply(item_data, body):
 
     Retourne (ok: bool, err: str | None).
     """
+    from julien_os.config import PROTONMAIL_BRIDGE_PASSWORD, PROTONMAIL_EMAIL
     from julien_os.tools.protonmail import ProtonMailClient
-    try:
-        with open("/root/secrets.json") as f:
-            secrets = json.load(f)
-        creds = secrets["protonmail"]
-    except Exception as e:
-        return False, f"secrets.json indisponible : {e}"
+
     client = ProtonMailClient(
-        email_addr=creds["email"],
-        bridge_password=creds.get("bridge_password", ""),
+        email_addr=PROTONMAIL_EMAIL,
+        bridge_password=PROTONMAIL_BRIDGE_PASSWORD,
     )
     folder = item_data.get("folder") or "INBOX"
     try:

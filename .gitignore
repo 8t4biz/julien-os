@@ -2,6 +2,7 @@
 secrets.json
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 

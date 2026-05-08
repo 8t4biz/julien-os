@@ -12,9 +12,10 @@ d'être passés à imaplib, qui n'accepte pas l'UTF-8 brut.
 """
 import base64
 import imaplib
-import json
 import logging
 import ssl
+
+from julien_os.config import PROTONMAIL_BRIDGE_PASSWORD, PROTONMAIL_EMAIL
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +61,12 @@ def _q(folder: str) -> str:
 
 
 def _connect() -> imaplib.IMAP4:
-    with open("/root/secrets.json") as f:
-        creds = json.load(f).get("protonmail", {})
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     conn = imaplib.IMAP4(IMAP_HOST, IMAP_PORT)
     conn.starttls(ssl_context=ctx)
-    conn.login(creds["email"], creds["bridge_password"])
+    conn.login(PROTONMAIL_EMAIL, PROTONMAIL_BRIDGE_PASSWORD)
     return conn
 
 
